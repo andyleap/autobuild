@@ -92,7 +92,9 @@ func main() {
 
 	go func() {
 		for range watchChan {
-			atomic.StoreInt64(&buildCountDown, 10)
+			if autoBuild {
+				atomic.StoreInt64(&buildCountDown, 10)
+			}
 		}
 	}()
 
