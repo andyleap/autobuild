@@ -3,6 +3,7 @@
 *.dll
 *.so
 *.dylib
+autobuild
 
 # Test binary, build with `go test -c`
 *.test
