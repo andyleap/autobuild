@@ -2,8 +2,11 @@
 package main
 
 import (
+	"bytes"
 	"log"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -22,13 +25,50 @@ func Refresh() {
 	}
 }
 
-func Build() {
+type OutTracker struct {
+	buf *bytes.Buffer
+}
+
+func (ot *OutTracker) Write(b []byte) (n int, err error) {
+	n, err = ot.buf.Write(b)
+
+	RunOut.Store(string(ot.buf.Bytes()))
+
+	Refresh()
+	return
+}
+
+var RunOut atomic.Value
+
+var Running *exec.Cmd
+
+func Run() {
+	if Running != nil && !Running.ProcessState.Exited() {
+		Running.Process.Kill()
+	}
+
+	dir, _ := os.Getwd()
+	cmdName := filepath.Base(dir)
+	Running = exec.Command(cmdName)
+
+	ot := &OutTracker{
+		buf: &bytes.Buffer{},
+	}
+
+	Running.Stdout = ot
+	Running.Stderr = ot
+
+	Running.Run()
+}
+
+func Build() bool {
 	cmd := exec.Command("go", "build", "-i")
-	out, _ := cmd.CombinedOutput()
+	out, err := cmd.CombinedOutput()
 	BuildOut.Store(BuildRet{
 		time.Now(),
 		string(out),
 	})
+	return err == nil
 }
 
 type BuildRet struct {
@@ -39,6 +79,8 @@ type BuildRet struct {
 var BuildOut atomic.Value
 
 func main() {
+	RunOut.Store("")
+
 	it, err := imterm.New(&imtermbox.TermAdapter{})
 	if err != nil {
 		log.Fatal(err)
@@ -105,8 +147,11 @@ func main() {
 			if atomic.LoadInt64(&buildCountDown) > 0 {
 				val := atomic.AddInt64(&buildCountDown, -1)
 				if val == 0 {
-					Build()
+					ret := Build()
 					Refresh()
+					if autoRun && ret {
+						go Run()
+					}
 				}
 			}
 		}
@@ -124,8 +169,8 @@ func main() {
 		}
 		br := BuildOut.Load().(BuildRet)
 
-		it.Text(0, 0, "Build: "+br.t.Format("15:04:05"), br.out)
-
+		it.Text(0, it.TermH/2, "Build: "+br.t.Format("15:04:05"), br.out)
+		it.Text(0, 0, "Run", RunOut.Load().(string))
 		it.Finish()
 	}
 }
